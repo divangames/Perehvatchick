@@ -148,8 +148,22 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not update.effective_chat or not update.effective_message:
         return
 
+    msg = update.effective_message
     config: BotConfig = context.bot_data["config"]
     source_chat_id = update.effective_chat.id
+    detailed_skip = context.bot_data.get("detailed_skip_log", False)
+
+    if context.bot_data.get("log_incoming"):
+        raw = (msg.text or msg.caption or "").replace("\n", " ")[:120]
+        kind = "text" if msg.text else ("caption" if msg.caption else "без текста")
+        logger.info(
+            "Входящее: chat_id=%s thread=%s msg=%s (%s) %r",
+            source_chat_id,
+            msg.message_thread_id,
+            msg.message_id,
+            kind,
+            raw,
+        )
 
     if source_chat_id not in config.source_chat_ids:
         if context.bot_data.get("log_unknown_chat"):
@@ -159,11 +173,10 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         return
 
-    msg = update.effective_message
     thread_id = msg.message_thread_id
     if config.source_topic_ids:
         if thread_id is None or thread_id not in config.source_topic_ids:
-            if context.bot_data.get("log_filter"):
+            if detailed_skip:
                 logger.info(
                     "Пропуск (тема форума не в SOURCE_TOPIC_IDS): chat=%s thread=%s",
                     source_chat_id,
@@ -173,12 +186,12 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     text = _message_text(update)
     if not _has_keywords(text, config.order_keywords):
-        if context.bot_data.get("log_filter"):
+        if detailed_skip:
             snippet = text[:160] + ("…" if len(text) > 160 else "")
             logger.info(
                 "Пропуск (нет ключевых слов): chat=%s msg=%s text=%r",
                 source_chat_id,
-                update.effective_message.message_id,
+                msg.message_id,
                 snippet,
             )
         return
@@ -195,6 +208,26 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.info("Forwarded message %s from chat %s", msg.message_id, source_chat_id)
     except Exception:
         logger.exception("Failed to forward message %s from chat %s", msg.message_id, source_chat_id)
+
+
+async def _post_init(application: Application) -> None:
+    sec_raw = os.getenv("TELEGRAM_HEARTBEAT_SEC", "").strip()
+    if not sec_raw:
+        return
+    try:
+        sec = int(sec_raw)
+    except ValueError:
+        logger.warning("TELEGRAM_HEARTBEAT_SEC must be integer seconds, got %r", sec_raw)
+        return
+    if sec <= 0:
+        return
+
+    async def pulse() -> None:
+        while True:
+            await asyncio.sleep(sec)
+            logger.info("Пульс: бот на связи, жду новые сообщения от Telegram…")
+
+    asyncio.create_task(pulse())
 
 
 async def main() -> None:
@@ -221,10 +254,13 @@ async def main() -> None:
     if proxy:
         builder = builder.proxy(proxy).get_updates_proxy(proxy)
 
+    builder = builder.post_init(_post_init)
     app = builder.build()
     app.bot_data["config"] = config
     app.bot_data["log_filter"] = _env_truthy("TELEGRAM_DEBUG_FILTER")
     app.bot_data["log_unknown_chat"] = _env_truthy("TELEGRAM_LOG_UNKNOWN_CHAT")
+    app.bot_data["log_incoming"] = _env_truthy("TELEGRAM_LOG_INCOMING")
+    app.bot_data["detailed_skip_log"] = app.bot_data["log_filter"] or app.bot_data["log_incoming"]
 
     app.add_handler(MessageHandler(filters.ALL, intercept_message))
     extra = ""
