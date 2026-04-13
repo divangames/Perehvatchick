@@ -201,8 +201,8 @@ async def main() -> None:
 
     app.add_handler(MessageHandler(filters.ALL, intercept_message))
     logger.info(
-        "Bot started. Watching %s chat(s), forwarding to %s",
-        len(config.source_chat_ids),
+        "Bot started. Источники SOURCE_CHAT_IDS: %s → цель TARGET_CHAT_ID: %s",
+        sorted(config.source_chat_ids),
         config.target_chat_id,
     )
 
