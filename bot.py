@@ -6,6 +6,7 @@ from typing import Iterable
 
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import NetworkError
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 
@@ -162,7 +163,16 @@ async def main() -> None:
         config.target_chat_id,
     )
 
-    await app.initialize()
+    try:
+        await app.initialize()
+    except NetworkError as exc:
+        logger.error(
+            "Нет связи с api.telegram.org: %s. "
+            "Многие VPN гонят только браузер: включите системный/TUN-режим или в .env задайте "
+            "TELEGRAM_PROXY=http://127.0.0.1:ПОРТ (локальный HTTP-прокси из Clash/v2rayN и т.п.).",
+            exc,
+        )
+        raise
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
     await asyncio.Event().wait()
