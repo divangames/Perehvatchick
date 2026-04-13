@@ -117,7 +117,11 @@ def _message_text(update: Update) -> str:
     message = update.effective_message
     if not message:
         return ""
-    return (message.text or message.caption or "").lower()
+    t = (message.text or message.caption or "").lower()
+    # Неразрывные/узкие пробелы из вёрстки сайтов мешают подстроке «логистика под ключ».
+    for ch in ("\u00a0", "\u2009", "\u202f"):
+        t = t.replace(ch, " ")
+    return t
 
 
 def _has_keywords(text: str, keywords: Iterable[str]) -> bool:
