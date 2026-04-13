@@ -13,7 +13,17 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
 )
+# Иначе httpx на INFO пишет полный URL с токеном в пути.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("order-sniffer-bot")
+
+
+def _normalize_bot_token(raw: str) -> str:
+    t = raw.strip().strip('"').strip("'")
+    if t.lower().startswith("bot "):
+        t = t[4:].strip()
+    return t
 
 
 @dataclass(frozen=True)
@@ -53,7 +63,7 @@ def _env_float(key: str, default: float) -> float:
 def load_config() -> BotConfig:
     load_dotenv()
 
-    token = os.getenv("BOT_TOKEN", "").strip()
+    token = _normalize_bot_token(os.getenv("BOT_TOKEN", ""))
     source_chat_ids_raw = os.getenv("SOURCE_CHAT_IDS", "").strip()
     target_chat_id_raw = os.getenv("TARGET_CHAT_ID", "").strip()
     order_keywords_raw = os.getenv("ORDER_KEYWORDS", "").strip()
