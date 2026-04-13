@@ -23,8 +23,17 @@ if errorlevel 1 (
 )
 
 if not exist ".env" (
-    echo [WARN] Файл .env не найден.
-    echo [WARN] Скопируйте .env.example в .env и заполните настройки.
+    if exist ".env.example" (
+        echo [INFO] Файл .env не найден — создаю из .env.example ...
+        copy /Y ".env.example" ".env" >nul
+        echo [INFO] Файл .env создан. Откройте его в блокноте и заполните:
+        echo       BOT_TOKEN, SOURCE_CHAT_IDS, TARGET_CHAT_ID
+        echo       ^(ORDER_KEYWORDS — по желанию^)
+        echo.
+        echo [INFO] После сохранения снова запустите run.bat
+    ) else (
+        echo [ERROR] Нет ни .env, ни .env.example. Восстановите файлы из репозитория.
+    )
     pause
     exit /b 1
 )
