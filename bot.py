@@ -136,10 +136,23 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     source_chat_id = update.effective_chat.id
 
     if source_chat_id not in config.source_chat_ids:
+        if context.bot_data.get("log_unknown_chat"):
+            logger.info(
+                "Сообщение не из отслеживаемых чатов: chat_id=%s (добавьте в SOURCE_CHAT_IDS, если это нужный чат)",
+                source_chat_id,
+            )
         return
 
     text = _message_text(update)
     if not _has_keywords(text, config.order_keywords):
+        if context.bot_data.get("log_filter"):
+            snippet = text[:160] + ("…" if len(text) > 160 else "")
+            logger.info(
+                "Пропуск (нет ключевых слов): chat=%s msg=%s text=%r",
+                source_chat_id,
+                update.effective_message.message_id,
+                snippet,
+            )
         return
 
     try:
@@ -179,6 +192,8 @@ async def main() -> None:
 
     app = builder.build()
     app.bot_data["config"] = config
+    app.bot_data["log_filter"] = _env_truthy("TELEGRAM_DEBUG_FILTER")
+    app.bot_data["log_unknown_chat"] = _env_truthy("TELEGRAM_LOG_UNKNOWN_CHAT")
 
     app.add_handler(MessageHandler(filters.ALL, intercept_message))
     logger.info(
