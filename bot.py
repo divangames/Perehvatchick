@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import urllib.request
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -59,6 +60,30 @@ def _env_float(key: str, default: float) -> float:
     if not raw:
         return default
     return float(raw)
+
+
+def _env_truthy(key: str) -> bool:
+    return os.getenv(key, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _resolve_proxy() -> str | None:
+    """Прокси для Bot API: явный TELEGRAM_PROXY, затем HTTPS_PROXY/HTTP_PROXY из .env, затем системный (Windows)."""
+    explicit = os.getenv("TELEGRAM_PROXY", "").strip()
+    if explicit:
+        return explicit
+    for env_key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+        p = os.getenv(env_key, "").strip()
+        if p:
+            logger.info("Using %s from environment for Telegram API", env_key)
+            return p
+    if _env_truthy("TELEGRAM_USE_SYSTEM_PROXY"):
+        proxies = urllib.request.getproxies()
+        for k in ("https", "http", "all"):
+            p = (proxies.get(k) or "").strip()
+            if p:
+                logger.info("Using system proxy (%s) from Windows / IE settings", k)
+                return p
+    return None
 
 
 def load_config() -> BotConfig:
@@ -135,7 +160,7 @@ async def main() -> None:
     read_t = _env_float("TELEGRAM_READ_TIMEOUT", 30.0)
     write_t = _env_float("TELEGRAM_WRITE_TIMEOUT", 30.0)
     pool_t = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0)
-    proxy = os.getenv("TELEGRAM_PROXY", "").strip() or None
+    proxy = _resolve_proxy()
 
     builder = (
         Application.builder()
@@ -151,7 +176,6 @@ async def main() -> None:
     )
     if proxy:
         builder = builder.proxy(proxy).get_updates_proxy(proxy)
-        logger.info("Using TELEGRAM_PROXY for API requests")
 
     app = builder.build()
     app.bot_data["config"] = config
@@ -168,8 +192,9 @@ async def main() -> None:
     except NetworkError as exc:
         logger.error(
             "Нет связи с api.telegram.org: %s. "
-            "Многие VPN гонят только браузер: включите системный/TUN-режим или в .env задайте "
-            "TELEGRAM_PROXY=http://127.0.0.1:ПОРТ (локальный HTTP-прокси из Clash/v2rayN и т.п.).",
+            "VPN часто не трогает Python: (1) TUN/«весь трафик» в VPN; (2) в .env — "
+            "TELEGRAM_PROXY=http://127.0.0.1:ПОРТ из Clash/v2rayN; "
+            "(3) TELEGRAM_USE_SYSTEM_PROXY=1 если в Windows задан системный прокси.",
             exc,
         )
         raise
