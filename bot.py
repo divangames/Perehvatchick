@@ -34,6 +34,10 @@ class BotConfig:
     source_chat_ids: set[int]
     target_chat_id: int
     order_keywords: tuple[str, ...]
+    # Пустой frozenset = слушать все темы форума; непустой = только эти message_thread_id
+    source_topic_ids: frozenset[int]
+    # Если цель — форум: ID темы, куда слать (иначе сообщение уйдёт в «Общий» или как позволит API)
+    target_message_thread_id: int | None
 
 
 def _parse_ids(raw_value: str) -> set[int]:
@@ -105,11 +109,19 @@ def load_config() -> BotConfig:
     if not source_chat_ids:
         raise ValueError("SOURCE_CHAT_IDS has no valid values")
 
+    source_topics_raw = os.getenv("SOURCE_TOPIC_IDS", "").strip()
+    source_topic_ids = frozenset(_parse_ids(source_topics_raw)) if source_topics_raw else frozenset()
+
+    target_thread_raw = os.getenv("TARGET_TOPIC_ID", "").strip()
+    target_message_thread_id = int(target_thread_raw) if target_thread_raw else None
+
     return BotConfig(
         token=token,
         source_chat_ids=source_chat_ids,
         target_chat_id=int(target_chat_id_raw),
         order_keywords=_parse_keywords(order_keywords_raw),
+        source_topic_ids=source_topic_ids,
+        target_message_thread_id=target_message_thread_id,
     )
 
 
@@ -147,6 +159,18 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         return
 
+    msg = update.effective_message
+    thread_id = msg.message_thread_id
+    if config.source_topic_ids:
+        if thread_id is None or thread_id not in config.source_topic_ids:
+            if context.bot_data.get("log_filter"):
+                logger.info(
+                    "Пропуск (тема форума не в SOURCE_TOPIC_IDS): chat=%s thread=%s",
+                    source_chat_id,
+                    thread_id,
+                )
+            return
+
     text = _message_text(update)
     if not _has_keywords(text, config.order_keywords):
         if context.bot_data.get("log_filter"):
@@ -160,14 +184,17 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     try:
-        await context.bot.copy_message(
-            chat_id=config.target_chat_id,
-            from_chat_id=source_chat_id,
-            message_id=update.effective_message.message_id,
-        )
-        logger.info("Forwarded message %s from chat %s", update.effective_message.message_id, source_chat_id)
+        copy_kw: dict = {
+            "chat_id": config.target_chat_id,
+            "from_chat_id": source_chat_id,
+            "message_id": msg.message_id,
+        }
+        if config.target_message_thread_id is not None:
+            copy_kw["message_thread_id"] = config.target_message_thread_id
+        await context.bot.copy_message(**copy_kw)
+        logger.info("Forwarded message %s from chat %s", msg.message_id, source_chat_id)
     except Exception:
-        logger.exception("Failed to forward message %s from chat %s", update.effective_message.message_id, source_chat_id)
+        logger.exception("Failed to forward message %s from chat %s", msg.message_id, source_chat_id)
 
 
 async def main() -> None:
@@ -200,10 +227,16 @@ async def main() -> None:
     app.bot_data["log_unknown_chat"] = _env_truthy("TELEGRAM_LOG_UNKNOWN_CHAT")
 
     app.add_handler(MessageHandler(filters.ALL, intercept_message))
+    extra = ""
+    if config.source_topic_ids:
+        extra += f" | темы-источники SOURCE_TOPIC_IDS: {sorted(config.source_topic_ids)}"
+    if config.target_message_thread_id is not None:
+        extra += f" | целевая тема TARGET_TOPIC_ID: {config.target_message_thread_id}"
     logger.info(
-        "Bot started. Источники SOURCE_CHAT_IDS: %s → цель TARGET_CHAT_ID: %s",
+        "Bot started. Источники SOURCE_CHAT_IDS: %s → цель TARGET_CHAT_ID: %s%s",
         sorted(config.source_chat_ids),
         config.target_chat_id,
+        extra,
     )
 
     try:
