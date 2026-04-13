@@ -25,6 +25,17 @@ pip install -r requirements.txt
 python bot.py
 ```
 
+## Ошибка `TimedOut` / `ConnectTimeout`
+
+Бот ходит на `api.telegram.org`. Если соединение режется или очень медленное, запрос не успевает за стандартное время.
+
+1. Проверьте интернет и VPN (в некоторых сетях API Telegram недоступен без VPN).
+2. В `.env` можно увеличить таймауты (секунды):  
+   `TELEGRAM_CONNECT_TIMEOUT`, `TELEGRAM_READ_TIMEOUT`, `TELEGRAM_WRITE_TIMEOUT`, `TELEGRAM_POOL_TIMEOUT`.
+3. Если нужен прокси: `TELEGRAM_PROXY=http://127.0.0.1:7890` (порт подставьте свой).  
+   Для `socks5://` установите зависимость:  
+   `pip install "python-telegram-bot[socks]"`.
+
 ## Важные условия работы
 
 - Бот видит сообщения только в тех чатах, где он состоит.

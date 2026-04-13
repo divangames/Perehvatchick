@@ -43,6 +43,13 @@ def _parse_keywords(raw_value: str) -> tuple[str, ...]:
     return tuple(words)
 
 
+def _env_float(key: str, default: float) -> float:
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    return float(raw)
+
+
 def load_config() -> BotConfig:
     load_dotenv()
 
@@ -113,7 +120,29 @@ async def intercept_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def main() -> None:
     config = load_config()
 
-    app = Application.builder().token(config.token).build()
+    connect_t = _env_float("TELEGRAM_CONNECT_TIMEOUT", 30.0)
+    read_t = _env_float("TELEGRAM_READ_TIMEOUT", 30.0)
+    write_t = _env_float("TELEGRAM_WRITE_TIMEOUT", 30.0)
+    pool_t = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0)
+    proxy = os.getenv("TELEGRAM_PROXY", "").strip() or None
+
+    builder = (
+        Application.builder()
+        .token(config.token)
+        .connect_timeout(connect_t)
+        .read_timeout(read_t)
+        .write_timeout(write_t)
+        .pool_timeout(pool_t)
+        .get_updates_connect_timeout(connect_t)
+        .get_updates_read_timeout(read_t)
+        .get_updates_write_timeout(write_t)
+        .get_updates_pool_timeout(pool_t)
+    )
+    if proxy:
+        builder = builder.proxy(proxy).get_updates_proxy(proxy)
+        logger.info("Using TELEGRAM_PROXY for API requests")
+
+    app = builder.build()
     app.bot_data["config"] = config
 
     app.add_handler(MessageHandler(filters.ALL, intercept_message))
